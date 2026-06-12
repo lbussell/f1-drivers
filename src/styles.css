@@ -155,6 +155,19 @@ body {
   position: relative;
 }
 
+#snaps {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+#snaps i {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  scroll-snap-align: center;
+}
+
 #lines {
   position: absolute;
   inset: 0;
@@ -214,10 +227,16 @@ body {
 }
 
 /* Pill: circular portrait on the left, "81 PIA" / team name stacked on the
-   right. The portrait circle stays centred on the line position (left/top are
-   set from half the puck size), so the pill body extends rightward from it. */
+   right. The portrait circle stays centred on the line position, so the pill
+   body extends rightward from it. Positioning is done with the individual
+   `translate` property, NOT left/top: left/top force a layout pass inside the
+   20000px world on every scrolled frame, which made iOS Safari stutter and
+   cancelled its scroll snapping. `translate` composes with the :hover/:focus
+   `transform: scale()` (translate applies first), so both can coexist. */
 .puck {
   position: absolute;
+  left: 0;
+  top: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -235,7 +254,7 @@ body {
     0 0 22px var(--glow, transparent);
   /* scale around the portrait centre, which is what sits on the line */
   transform-origin: calc(var(--puck-size) / 2) 50%;
-  will-change: transform;
+  will-change: translate, transform;
 }
 
 .puck-photo {
@@ -350,8 +369,10 @@ body {
   background: linear-gradient(180deg, transparent, rgba(7, 7, 12, 0.88) 38%);
 }
 
+/* Snap positions live on dedicated invisible markers in the world (#snaps),
+   not on the axis cells: the axis is position:sticky, and WebKit does not
+   reliably snap to areas inside sticky elements (broken on iOS Safari). */
 .axis-cell {
-  scroll-snap-align: center;
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;

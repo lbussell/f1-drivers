@@ -109,6 +109,18 @@ export class Viz {
       this.axisEl.appendChild(cell);
       return cell;
     });
+
+    // invisible snap markers, one per year (see #snaps comment in styles.css)
+    document.getElementById('snaps')?.remove();
+    const snaps = document.createElement('div');
+    snaps.id = 'snaps';
+    years.forEach((_, i) => {
+      const s = document.createElement('i');
+      s.style.left = `${this.x(i) - this.geom.yearW / 2}px`;
+      s.style.width = `${this.geom.yearW}px`;
+      snaps.appendChild(s);
+    });
+    this.world.appendChild(snaps);
   }
 
   updateAxisState() {
@@ -513,26 +525,53 @@ export class Viz {
         const entry = model.seasons[di].entryBy.get(driverId);
         this.setPuckTag(el, entry, model.drivers[driverId], { animate: true });
       }
-      el.style.left = `${px - half}px`;
-      el.style.top = `${py - half}px`;
-      el.style.opacity = opacity;
-      // don't let an all-but-invisible puck intercept hover / clicks
-      el.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
+      // `translate`, not left/top: keeps every scrolled frame layout-free
+      // (see .puck comment in styles.css). Skip writes when nothing moved —
+      // vertical scrolling ticks this loop too, with unchanged positions.
+      const tx = px - half;
+      const ty = py - half;
+      const tr = `${tx}px ${ty}px`;
+      if (el._tr !== tr) {
+        el._tr = tr;
+        el._tx = tx;
+        el._ty = ty;
+        el.style.translate = tr;
+      }
+      if (el._op !== opacity) {
+        el._op = opacity;
+        el.style.opacity = opacity;
+        // don't let an all-but-invisible puck intercept hover / clicks
+        el.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
+      }
     }
   }
 
   // ---------- interactions ----------
 
   bindEvents() {
-    // scroll: proximity styling + snapped year detection
-    let scrollRaf = null;
+    // scroll: proximity styling + snapped year detection. One free-running
+    // rAF loop while scrolling (started on the first event, stopped shortly
+    // after the last) rather than one rAF per scroll event: iOS Safari fires
+    // scroll events at a lower rate than the display refresh during momentum
+    // scrolling, so event-driven puck updates stuttered against the
+    // compositor-smooth scroll. The loop reads scrollLeft every frame.
+    let scrubUntil = 0;
+    let scrubLooping = false;
+    const scrubTick = () => {
+      this.updateAxisProximity();
+      this.scrubPucks();
+      if (performance.now() < scrubUntil) {
+        requestAnimationFrame(scrubTick);
+      } else {
+        scrubLooping = false;
+      }
+    };
     this.viewport.addEventListener('scroll', () => {
-      if (scrollRaf) return;
-      scrollRaf = requestAnimationFrame(() => {
-        scrollRaf = null;
-        this.updateAxisProximity();
-        this.scrubPucks();
-      });
+      scrubUntil = performance.now() + 200;
+      if (!scrubLooping) {
+        scrubLooping = true;
+        requestAnimationFrame(scrubTick);
+      }
       this.hideTooltip();
     });
 
@@ -763,7 +802,8 @@ export class Viz {
   }
 
   hideTooltip() {
-    this.tooltip.hidden = true;
+    // called from every scroll event; avoid redundant attribute writes
+    if (!this.tooltip.hidden) this.tooltip.hidden = true;
   }
 
   // ---------- year + mode state ----------
@@ -774,11 +814,20 @@ export class Viz {
   }
 
   centerOnYear(idx, { smooth = true } = {}) {
+    const left = Math.max(
+      0,
+      Math.min(
+        this.viewport.scrollWidth - this.viewport.clientWidth,
+        this.x(idx) - this.geom.vw / 2
+      )
+    );
     // Flag this as a programmatic scroll so the settle handler doesn't treat
-    // the resulting scrollend as a manual pan and re-set the year.
-    this._autoScroll = true;
+    // the resulting scrollend as a manual pan and re-set the year. Only arm
+    // the flag when the scroll will actually move: a no-op scrollTo fires no
+    // scrollend, and a stale flag would swallow the next manual pan's settle.
+    this._autoScroll = Math.abs(this.viewport.scrollLeft - left) > 1;
     this.viewport.scrollTo({
-      left: this.x(idx) - this.geom.vw / 2,
+      left,
       behavior: smooth && !reducedMotion ? 'smooth' : 'auto',
     });
   }
@@ -808,9 +857,9 @@ export class Viz {
       }
     }
     const pucks = [...this._activePucks]
-      .map(([driverId, el]) => ({ el, to: this.yFor(driverId, this.yearIdx, mode) }))
+      .map(([driverId, el]) => ({ el, from: el._ty, to: this.yFor(driverId, this.yearIdx, mode) }))
       .filter((p) => p.to != null)
-      .map((p) => ({ el: p.el, to: p.to - this.geom.puck / 2 }));
+      .map((p) => ({ el: p.el, from: p.from, to: p.to - this.geom.puck / 2 }));
 
     const proxy = { t: 0 };
     gsap.to(proxy, {
@@ -820,11 +869,14 @@ export class Viz {
       onUpdate: () => {
         for (const m of moves) m.node.y = m.from + (m.to - m.from) * proxy.t;
         this.redrawPaths();
+        for (const p of pucks) {
+          const y = p.from + (p.to - p.from) * proxy.t;
+          p.el._ty = y;
+          p.el._tr = `${p.el._tx}px ${y}px`;
+          p.el.style.translate = p.el._tr;
+        }
       },
     });
-    for (const p of pucks) {
-      gsap.to(p.el, { top: p.to, duration: DUR(0.85), ease: 'power3.inOut' });
-    }
   }
 
   handleResize() {

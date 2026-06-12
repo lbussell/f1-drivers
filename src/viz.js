@@ -308,14 +308,14 @@ export class Viz {
       'aria-label',
       `${driver.name}, ${primaryStint(entry).team}, ${entry.points} points`
     );
-    const tag = `<span class="puck-tag"><b class="num">${entry.number ?? ''}</b><span class="abbr">${
+    const tag = `<span class="puck-tag"><span class="puck-id"><b class="num">${entry.number ?? ''}</b><span class="abbr">${
       entry.acronym ?? driver.acronym ?? ''
-    }</span></span>`;
+    }</span></span><span class="puck-team">${primaryStint(entry).team}</span></span>`;
     if (createImg) {
       const img = driver.portrait
         ? `<img class="puck-img" src="${import.meta.env.BASE_URL}${driver.portrait}" alt="" loading="lazy" draggable="false">`
         : `<span class="puck-fallback">${driver.acronym ?? '?'}</span>`;
-      el.innerHTML = `${img}${tag}`;
+      el.innerHTML = `<span class="puck-photo">${img}</span>${tag}`;
     } else {
       const existing = el.querySelector('.puck-tag');
       if (existing) existing.outerHTML = tag;

@@ -213,25 +213,44 @@ body {
   left: 0;
 }
 
+/* Pill: circular portrait on the left, "81 PIA" / team name stacked on the
+   right. The portrait circle stays centred on the line position (left/top are
+   set from half the puck size), so the pill body extends rightward from it. */
 .puck {
   position: absolute;
-  width: var(--puck-size);
+  display: flex;
+  align-items: center;
+  gap: 8px;
   height: var(--puck-size);
-  padding: 0;
+  padding: 0 12px 0 0;
   appearance: none;
-  border: 0;
-  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--team, #888) 45%, rgba(255, 255, 255, 0.1));
+  border-radius: 999px;
   color: var(--ink); /* buttons default to UA buttontext (black) otherwise */
-  background: var(--ring, #888);
+  background: rgba(9, 9, 15, 0.85);
   cursor: pointer;
   transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow:
     0 4px 18px rgba(0, 0, 0, 0.55),
     0 0 22px var(--glow, transparent);
+  /* scale around the portrait centre, which is what sits on the line */
+  transform-origin: calc(var(--puck-size) / 2) 50%;
   will-change: transform;
 }
 
-.puck::after {
+.puck-photo {
+  position: relative;
+  flex: 0 0 auto;
+  width: var(--puck-size);
+  height: var(--puck-size);
+  /* the button border shifts content by 1px; pull the circle back onto the
+     line position so left/top maths in scrubPucks stays exact */
+  margin: -1px;
+  border-radius: 50%;
+  background: var(--ring, #888);
+}
+
+.puck-photo::after {
   /* inner bezel between ring and photo */
   content: '';
   position: absolute;
@@ -273,22 +292,19 @@ body {
 }
 
 .puck-tag {
-  position: absolute;
-  left: 50%;
-  bottom: -9px;
-  transform: translateX(-50%);
   display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(8, 8, 14, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 11px;
-  line-height: 1.5;
+  flex-direction: column;
+  gap: 1px;
   white-space: nowrap;
   pointer-events: none;
-  transition: opacity 0.25s;
+}
+
+.puck-id {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 1.3;
 }
 
 .puck-tag .num {
@@ -300,6 +316,14 @@ body {
 .puck-tag .abbr {
   font-weight: 700;
   letter-spacing: 0.08em;
+}
+
+.puck-team {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  color: var(--team, var(--ink-dim));
 }
 
 /* ---------- year axis ---------- */
@@ -763,6 +787,19 @@ body {
     width: 38px;
     height: 38px;
     bottom: 18px;
+  }
+
+  .puck {
+    gap: 6px;
+    padding-right: 9px;
+  }
+
+  .puck-id {
+    font-size: 11px;
+  }
+
+  .puck-team {
+    font-size: 9px;
   }
 
   #lines .seg {

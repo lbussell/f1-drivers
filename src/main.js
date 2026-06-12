@@ -19,9 +19,6 @@ async function boot() {
   try {
     window.__gsap = gsap; // handy for debugging in devtools
     const model = await loadData();
-    document.querySelector('.tagline').textContent = `F1 driver movement, ${
-      model.years[0]
-    } → ${model.years[model.years.length - 1]}`;
     const flyout = new Flyout(model);
     const viz = new Viz({ model, onSelectDriver: (id) => flyout.open(id) });
 

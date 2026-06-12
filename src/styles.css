@@ -61,15 +61,6 @@ body {
   min-width: 0;
 }
 
-.brand-mark {
-  align-self: center;
-  width: 22px;
-  height: 12px;
-  border-radius: 2px;
-  background: repeating-linear-gradient(90deg, var(--accent) 0 5px, transparent 5px 8px);
-  box-shadow: 0 0 18px rgba(225, 6, 0, 0.55);
-}
-
 .brand h1 {
   margin: 0;
   font-size: 20px;
@@ -79,25 +70,34 @@ body {
   white-space: nowrap;
 }
 
-.tagline {
-  margin: 0;
-  font-size: 12px;
+.gh-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--ink-dim);
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  transition: color 0.2s, transform 0.15s;
 }
 
-/* segmented sort toggle */
+.gh-link:hover,
+.gh-link:focus-visible {
+  color: var(--ink);
+  transform: scale(1.08);
+}
+
+/* segmented sort toggle — floats at the bottom centre, beneath the year */
 
 .sort-toggle {
-  position: relative;
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  z-index: 25;
   display: flex;
   padding: 3px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(16, 16, 24, 0.72);
+  backdrop-filter: blur(8px);
 }
 
 .sort-btn {
@@ -320,7 +320,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  padding-bottom: 12px;
+  padding-bottom: 64px;
   user-select: none;
 }
 
@@ -333,6 +333,9 @@ body {
   line-height: 1;
   transition: color 0.3s;
   transform-origin: 50% 100%;
+  text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.95);
 }
 
 .axis-sub {
@@ -347,7 +350,10 @@ body {
 
 .axis-cell.is-current .axis-year {
   color: var(--ink);
-  text-shadow: 0 0 30px rgba(255, 255, 255, 0.25);
+  text-shadow:
+    0 2px 14px rgba(0, 0, 0, 0.9),
+    0 0 6px rgba(0, 0, 0, 0.95),
+    0 0 30px rgba(255, 255, 255, 0.25);
 }
 
 .axis-cell.is-current .axis-sub {
@@ -392,21 +398,6 @@ body {
 
 #nav-next {
   right: clamp(10px, 2.5vw, 28px);
-}
-
-#hint {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  z-index: 5;
-  pointer-events: none;
-  white-space: nowrap;
 }
 
 /* ---------- tooltip ---------- */
@@ -751,15 +742,11 @@ body {
 
 @media (max-width: 680px) {
   :root {
-    --topbar-h: 96px;
+    --topbar-h: 48px;
     --puck-size: 50px;
   }
 
   #topbar {
-    flex-direction: column;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 8px;
     padding-top: max(8px, env(safe-area-inset-top));
   }
 
@@ -767,18 +754,9 @@ body {
     font-size: 17px;
   }
 
-  .sort-toggle {
-    align-self: stretch;
-  }
-
   .sort-btn {
-    flex: 1;
-    padding: 7px 8px;
+    padding: 7px 12px;
     font-size: 11px;
-  }
-
-  #hint {
-    display: none;
   }
 
   .year-nav {

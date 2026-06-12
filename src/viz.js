@@ -308,18 +308,99 @@ export class Viz {
       'aria-label',
       `${driver.name}, ${primaryStint(entry).team}, ${entry.points} points`
     );
-    const tag = `<span class="puck-tag"><span class="puck-id"><b class="num">${entry.number ?? ''}</b><span class="abbr">${
-      entry.acronym ?? driver.acronym ?? ''
-    }</span></span><span class="puck-team">${primaryStint(entry).team}</span></span>`;
     if (createImg) {
       const img = driver.portrait
         ? `<img class="puck-img" src="${import.meta.env.BASE_URL}${driver.portrait}" alt="" loading="lazy" draggable="false">`
         : `<span class="puck-fallback">${driver.acronym ?? '?'}</span>`;
-      el.innerHTML = `<span class="puck-photo">${img}</span>${tag}`;
-    } else {
-      const existing = el.querySelector('.puck-tag');
-      if (existing) existing.outerHTML = tag;
+      el.innerHTML = `<span class="puck-photo">${img}</span><span class="puck-tag"></span>`;
+      el._tagKey = null;
     }
+    this.setPuckTag(el, entry, driver, { animate: !createImg });
+  }
+
+  // Update the number / acronym / team-name text. When the team name changes
+  // on a live puck the old name slides out to the left while the new one
+  // slides in from the right, and the pill width eases between the two.
+  setPuckTag(el, entry, driver, { animate = false } = {}) {
+    const num = entry.number ?? '';
+    const abbr = entry.acronym ?? driver.acronym ?? '';
+    const team = primaryStint(entry).team;
+    const key = `${num}|${abbr}|${team}`;
+    if (el._tagKey === key) return;
+    const hadTeam = el._tagKey != null;
+    el._tagKey = key;
+
+    const tag = el.querySelector('.puck-tag');
+    const idHtml = `<span class="puck-id"><b class="num">${num}</b><span class="abbr">${abbr}</span></span>`;
+    if (!animate || !hadTeam || reducedMotion) {
+      tag.innerHTML = `${idHtml}<span class="puck-team"><span class="puck-team-text">${team}</span></span>`;
+      return;
+    }
+
+    tag.querySelector('.puck-id').outerHTML = idHtml;
+    const teamEl = tag.querySelector('.puck-team');
+    // a rapid second change mid-animation: drop any ghost still on its way out
+    for (const ghost of teamEl.querySelectorAll('.is-out')) ghost.remove();
+    const oldText = teamEl.querySelector('.puck-team-text');
+    if (oldText.textContent === team) return;
+    const w0 = teamEl.offsetWidth;
+
+    const newText = document.createElement('span');
+    newText.className = 'puck-team-text';
+    newText.textContent = team;
+    teamEl.appendChild(newText);
+    oldText.classList.add('is-out'); // out of flow so the new name takes over layout
+    gsap.killTweensOf([oldText, teamEl]);
+    gsap.to(oldText, {
+      x: -9,
+      autoAlpha: 0,
+      duration: DUR(0.22),
+      ease: 'power2.in',
+      onComplete: () => oldText.remove(),
+    });
+    gsap.fromTo(
+      newText,
+      { x: 9, autoAlpha: 0 },
+      { x: 0, autoAlpha: 1, duration: DUR(0.26), ease: 'power2.out', delay: DUR(0.08) }
+    );
+    gsap.fromTo(
+      teamEl,
+      { width: w0 },
+      { width: newText.offsetWidth, duration: DUR(0.3), ease: 'power2.inOut', clearProps: 'width' }
+    );
+  }
+
+  // Blend the puck's team colours (ring, border, glow, text) between two
+  // seasons, matching the line gradient which crossfades across the middle
+  // 38–62% of the span between adjacent years.
+  blendPuckColours(el, driverId, i0, i1, f) {
+    const { seasons } = this.model;
+    const a = seasons[i0].entryBy.get(driverId);
+    const b = seasons[i1].entryBy.get(driverId);
+    const ta = stintColour(primaryStint(a));
+    const tb = stintColour(primaryStint(b));
+    const ca = colourEnd(a);
+    const cb = colourStart(b);
+    if (ta === tb && ca === cb) return; // same team both years: nothing to fade
+    const t = Math.max(0, Math.min(1, (f - 0.38) / 0.24));
+    const key = `${i0}:${t.toFixed(3)}`;
+    if (el._colourKey === key) return;
+    el._colourKey = key;
+    let team, ring;
+    if (t <= 0) {
+      team = ta;
+      ring = ringGradient(a, seasons[i0].racesCompleted);
+    } else if (t >= 1) {
+      team = tb;
+      ring = ringGradient(b, seasons[i1].racesCompleted);
+    } else {
+      const pct = `${(t * 100).toFixed(1)}%`;
+      team = ta === tb ? ta : `color-mix(in srgb, ${tb} ${pct}, ${ta})`;
+      ring = `color-mix(in srgb, ${cb} ${pct}, ${ca})`;
+    }
+    el.style.setProperty('--team', team);
+    el.style.setProperty('--ring', ring);
+    el.style.setProperty('--glow', `color-mix(in srgb, ${team} 45%, transparent)`);
   }
 
   // Continuous "scrub": pucks are positioned every scroll frame straight from
@@ -336,7 +417,7 @@ export class Viz {
   // Ensure a puck element exists for every driver on the grid in either bracket
   // year: create new arrivals, drop the ones that have scrolled out of range,
   // and refresh team colour / number for the rest.
-  rebuildActivePucks(i0, i1) {
+  rebuildActivePucks(i0, i1, f) {
     const { model } = this;
     const active = (this._activePucks ??= new Map());
     const want = new Set([
@@ -352,8 +433,13 @@ export class Viz {
     }
 
     for (const driverId of want) {
-      const anchor = this.yFor(driverId, i0) != null ? i0 : i1;
-      const season = model.seasons[anchor];
+      // anchor content to the nearest season the driver appears in, so
+      // entering a new bracket (in either scroll direction) doesn't swap the
+      // tag away from what's currently displayed
+      const inA = this.yFor(driverId, i0) != null;
+      const inB = this.yFor(driverId, i1) != null;
+      const near = inA && inB ? (f < 0.5 ? i0 : i1) : inA ? i0 : i1;
+      const season = model.seasons[near];
       const entry = season.entryBy.get(driverId);
       let el = active.get(driverId);
       if (el) {
@@ -366,6 +452,7 @@ export class Viz {
         this.pucksEl.appendChild(el);
         active.set(driverId, el);
       }
+      el._dispYear = near;
     }
   }
 
@@ -382,7 +469,7 @@ export class Viz {
     const f = yf - i0;
 
     if (i0 !== this._scrubI0) {
-      this.rebuildActivePucks(i0, i1);
+      this.rebuildActivePucks(i0, i1, f);
       this._scrubI0 = i0;
     }
 
@@ -391,6 +478,7 @@ export class Viz {
       return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
     };
 
+    const { yearW, rowH } = geom;
     for (const [driverId, el] of this._activePucks) {
       const ay = this.yFor(driverId, i0);
       const by = this.yFor(driverId, i1);
@@ -402,14 +490,28 @@ export class Viz {
         px = bez(ax, mx, mx, bx, f);
         py = bez(ay, ay, by, by, f);
         opacity = 1;
+        this.blendPuckColours(el, driverId, i0, i1, f);
       } else if (ay != null) {
-        px = this.x(i0);
-        py = ay;
+        // exiting the grid: ride the same fall-away bezier the line's
+        // tailCurve draws, fading out on the way down
+        const x0 = this.x(i0);
+        px = bez(x0, x0 + yearW * 0.3, x0 + yearW * 0.42, x0 + yearW * 0.5, f);
+        py = bez(ay, ay, ay + rowH, ay + rowH * 2.1, f);
         opacity = 1 - f;
       } else {
-        px = this.x(i1);
-        py = by;
+        // debuting / returning: rise up the incoming tail toward the node
+        const x1 = this.x(i1);
+        px = bez(x1 - yearW * 0.5, x1 - yearW * 0.42, x1 - yearW * 0.3, x1, f);
+        py = bez(by + rowH * 2.1, by + rowH, by, by, f);
         opacity = f;
+      }
+
+      // the displayed season (tag text) flips at the midpoint between years
+      const di = ay != null && by != null ? (f < 0.5 ? i0 : i1) : ay != null ? i0 : i1;
+      if (el._dispYear !== di) {
+        el._dispYear = di;
+        const entry = model.seasons[di].entryBy.get(driverId);
+        this.setPuckTag(el, entry, model.drivers[driverId], { animate: true });
       }
       el.style.left = `${px - half}px`;
       el.style.top = `${py - half}px`;

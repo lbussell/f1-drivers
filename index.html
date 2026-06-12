@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0a0f" />
+    <title>Grid Lines — F1 Driver Movement</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230a0a10'/%3E%3Cpath d='M5 22 Q12 22 16 12 T27 9' fill='none' stroke='%23e10600' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E"
+    />
+    <meta
+      name="description"
+      content="An interactive visualization of Formula 1 drivers and how they moved between teams, season by season."
+    />
+  </head>
+  <body>
+    <div id="app">
+      <header id="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <h1>Grid&nbsp;Lines</h1>
+          <p class="tagline">F1 driver movement through the years</p>
+        </div>
+        <div class="sort-toggle" role="radiogroup" aria-label="Sort drivers by">
+          <button class="sort-btn is-active" data-mode="drivers" role="radio" aria-checked="true">
+            Drivers&rsquo;
+          </button>
+          <button class="sort-btn" data-mode="constructors" role="radio" aria-checked="false">
+            Constructors&rsquo;
+          </button>
+          <span class="sort-pill" aria-hidden="true"></span>
+        </div>
+      </header>
+
+      <main id="stage">
+        <div id="viewport" tabindex="0" aria-label="Season timeline. Use arrow keys to change year.">
+          <div id="world">
+            <svg id="lines" aria-hidden="true"></svg>
+            <div id="pucks"></div>
+            <div id="year-axis"></div>
+          </div>
+        </div>
+
+        <button id="nav-prev" class="year-nav" aria-label="Previous season">&#x2039;</button>
+        <button id="nav-next" class="year-nav" aria-label="Next season">&#x203A;</button>
+
+        <div id="tooltip" role="status" aria-live="polite" hidden></div>
+        <p id="hint">scroll&nbsp;&harr;&nbsp;to travel between seasons &middot; tap a driver for their story</p>
+      </main>
+
+      <aside id="flyout" aria-hidden="true" role="dialog" aria-label="Driver details">
+        <button id="flyout-close" aria-label="Close driver details">&times;</button>
+        <div id="flyout-content"></div>
+      </aside>
+      <div id="flyout-backdrop" hidden></div>
+
+      <div id="loading">
+        <div class="loading-lights" aria-hidden="true">
+          <i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <p>Forming up on the grid&hellip;</p>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

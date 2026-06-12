@@ -422,22 +422,50 @@ export class Viz {
       if (e.key === 'ArrowRight') this.step(1);
     });
 
-    // hover + click on lines and pucks (event delegation)
-    this.svg.addEventListener('pointermove', (e) => {
-      const hit = e.target.closest?.('.hit, .node') ?? null;
-      const g = e.target.closest?.('.driver');
-      if (hit || g) {
-        const driverId = g?.dataset.driver;
-        if (driverId) {
-          this.setFocus(driverId);
-          this.showLineTooltip(driverId, e);
-          return;
+    // hover + click on lines (event delegation). The hit-test is throttled to
+    // one resolve per frame and uses "sticky focus": while the cursor is still
+    // over the currently focused driver's line we keep it, even if another
+    // line is painted on top. Without this, the densely overlapping 30px hit
+    // strokes make the topmost driver flip every few pixels, which restarted
+    // transitions across the whole SVG and made every line flicker.
+    let hoverRaf = null;
+    let hoverEvent = null;
+    const resolveHover = () => {
+      hoverRaf = null;
+      const e = hoverEvent;
+      if (!e) return;
+      const stack = document.elementsFromPoint(e.clientX, e.clientY);
+      let topDriver = null;
+      let keepCurrent = false;
+      for (const el of stack) {
+        const g = el.closest?.('.driver');
+        if (!g) continue;
+        const id = g.dataset.driver;
+        if (!topDriver) topDriver = id;
+        if (id === this.focusId) {
+          keepCurrent = true;
+          break;
         }
       }
-      this.setFocus(null);
-      this.hideTooltip();
+      const driverId = keepCurrent ? this.focusId : topDriver;
+      if (driverId) {
+        this.setFocus(driverId);
+        this.showLineTooltip(driverId, e);
+      } else {
+        this.setFocus(null);
+        this.hideTooltip();
+      }
+    };
+    this.svg.addEventListener('pointermove', (e) => {
+      hoverEvent = e;
+      if (hoverRaf == null) hoverRaf = requestAnimationFrame(resolveHover);
     });
     this.svg.addEventListener('pointerleave', () => {
+      hoverEvent = null;
+      if (hoverRaf != null) {
+        cancelAnimationFrame(hoverRaf);
+        hoverRaf = null;
+      }
       this.setFocus(null);
       this.hideTooltip();
     });
@@ -475,14 +503,23 @@ export class Viz {
   setFocus(driverId) {
     if (driverId === this.focusId) return;
     this.focusId = driverId;
-    this.svg.classList.toggle('has-focus', !!driverId);
-    this.pucksEl.classList.toggle('has-focus', !!driverId);
-    for (const [id, g] of this.driverGroups) {
-      g.classList.toggle('is-focus', id === driverId);
-    }
-    for (const puck of this.pucksEl.children) {
-      puck.classList.toggle('is-focus', puck.dataset.driver === driverId);
-    }
+
+    // Only restyle the line/puck that actually changed. Previously this toggled
+    // `has-focus` on the whole SVG (dimming all ~1200 paths + nodes through CSS
+    // transitions) and looped over every driver group — so a single hover flip
+    // repainted the entire 20000px chart. Now a focus change touches at most
+    // two line groups and two pucks.
+    if (this._focusGroup) this._focusGroup.classList.remove('is-focus');
+    const g = driverId ? this.driverGroups.get(driverId) : null;
+    if (g) g.classList.add('is-focus');
+    this._focusGroup = g;
+
+    if (this._focusPuck) this._focusPuck.classList.remove('is-focus');
+    const puck = driverId
+      ? this.pucksEl.querySelector(`.puck[data-driver="${driverId}"]`)
+      : null;
+    if (puck) puck.classList.add('is-focus');
+    this._focusPuck = puck;
   }
 
   // ---------- tooltip ----------

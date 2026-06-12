@@ -178,15 +178,10 @@ body {
 #lines .node {
   stroke: var(--bg);
   stroke-width: 3px;
-  transition: opacity 0.25s;
   opacity: 0.9;
 }
 
-#lines.has-focus .driver .node {
-  opacity: 0.2;
-}
-
-#lines.has-focus .driver.is-focus .node {
+#lines .driver.is-focus .node {
   opacity: 1;
 }
 
@@ -199,22 +194,15 @@ body {
   cursor: pointer;
 }
 
-/* hover focus: dim everyone else, light up the hovered driver */
-#lines.has-focus .driver .seg {
-  opacity: 0.06;
-}
-
-#lines.has-focus .driver.is-focus .seg {
+/* Hover focus: brighten only the hovered line. We deliberately do NOT dim the
+   other lines/pucks — dimming everyone meant each focus change restarted
+   opacity transitions across ~1200 SVG elements and repainted the whole
+   20000px chart, which flickered badly (worst on Firefox). Lifting one line
+   out of the faint 0.32 baseline reads just as clearly for a fraction of the
+   paint cost. */
+#lines .driver.is-focus .seg {
   opacity: 1;
-  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.18));
-}
-
-#pucks.has-focus .puck:not(.is-focus) {
-  opacity: 0.22;
-}
-
-#pucks.has-focus .puck:not(.is-focus) .puck-tag {
-  opacity: 0;
+  stroke-width: 21px;
 }
 
 /* ---------- pucks ---------- */
@@ -236,7 +224,7 @@ body {
   color: var(--ink); /* buttons default to UA buttontext (black) otherwise */
   background: var(--ring, #888);
   cursor: pointer;
-  transition: opacity 0.25s;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
   box-shadow:
     0 4px 18px rgba(0, 0, 0, 0.55),
     0 0 22px var(--glow, transparent);
@@ -278,6 +266,10 @@ body {
 .puck:hover,
 .puck.is-focus {
   z-index: 5;
+  transform: scale(1.1);
+  box-shadow:
+    0 6px 22px rgba(0, 0, 0, 0.6),
+    0 0 34px var(--glow, transparent);
 }
 
 .puck-tag {
@@ -423,13 +415,12 @@ body {
   position: fixed;
   z-index: 50;
   pointer-events: none;
-  background: rgba(10, 10, 16, 0.92);
+  background: rgba(10, 10, 16, 0.96);
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-left: 3px solid var(--team, var(--accent));
   border-radius: 8px;
   padding: 8px 12px;
   max-width: 260px;
-  backdrop-filter: blur(10px);
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
 }
 
@@ -798,6 +789,10 @@ body {
 
   #lines .seg {
     stroke-width: 13px;
+  }
+
+  #lines .driver.is-focus .seg {
+    stroke-width: 16px;
   }
 
   #flyout {

@@ -33,10 +33,10 @@ export class Viz {
     this.computeGeometry();
     this.buildAxis();
     this.buildChart();
-    this.renderPucks({ animate: false });
     this.updateAxisState();
     this.bindEvents();
     this.centerOnYear(this.yearIdx, { smooth: false });
+    this.scrubPucks();
     requestAnimationFrame(() => this.introAnimation());
   }
 
@@ -293,68 +293,129 @@ export class Viz {
 
   // ---------- pucks ----------
 
-  renderPucks({ animate = true } = {}) {
-    const { model, geom } = this;
-    const season = model.seasons[this.yearIdx];
-    const yearIdx = this.yearIdx;
-
-    // animate out the existing pucks
-    const old = [...this.pucksEl.children];
-    if (old.length) {
-      if (animate) {
-        gsap.to(old, {
-          scale: 0.2,
-          opacity: 0,
-          duration: DUR(0.28),
-          ease: 'power2.in',
-          stagger: 0.008,
-          onComplete: () => old.forEach((el) => el.remove()),
-        });
-      } else {
-        old.forEach((el) => el.remove());
-      }
-    }
-
-    const frag = document.createDocumentFragment();
-    const created = [];
-    for (const driverId of season.orders[this.mode]) {
-      const entry = season.entryBy.get(driverId);
-      const driver = model.drivers[driverId];
-      const ring = ringGradient(entry, season.racesCompleted);
-      const teamColour = stintColour(primaryStint(entry));
-      const el = document.createElement('button');
-      el.className = 'puck';
-      el.dataset.driver = driverId;
-      el.style.setProperty('--ring', ring);
-      el.style.setProperty('--team', teamColour);
-      el.style.setProperty('--glow', `color-mix(in srgb, ${teamColour} 45%, transparent)`);
-      el.setAttribute('aria-label', `${driver.name}, ${primaryStint(entry).team}, ${entry.points} points`);
+  // Write the per-season visuals (ring, team colour, number/acronym, label)
+  // onto a puck element. The portrait only needs creating once per element; on
+  // reuse we just refresh the bits that can change when a driver switches team
+  // between years.
+  fillPuck(el, driverId, entry, season, { createImg } = {}) {
+    const driver = this.model.drivers[driverId];
+    const ring = ringGradient(entry, season.racesCompleted);
+    const teamColour = stintColour(primaryStint(entry));
+    el.style.setProperty('--ring', ring);
+    el.style.setProperty('--team', teamColour);
+    el.style.setProperty('--glow', `color-mix(in srgb, ${teamColour} 45%, transparent)`);
+    el.setAttribute(
+      'aria-label',
+      `${driver.name}, ${primaryStint(entry).team}, ${entry.points} points`
+    );
+    const tag = `<span class="puck-tag"><b class="num">${entry.number ?? ''}</b><span class="abbr">${
+      entry.acronym ?? driver.acronym ?? ''
+    }</span></span>`;
+    if (createImg) {
       const img = driver.portrait
         ? `<img class="puck-img" src="${import.meta.env.BASE_URL}${driver.portrait}" alt="" loading="lazy" draggable="false">`
         : `<span class="puck-fallback">${driver.acronym ?? '?'}</span>`;
-      el.innerHTML = `${img}<span class="puck-tag"><b class="num">${entry.number ?? ''}</b><span class="abbr">${entry.acronym ?? driver.acronym ?? ''}</span></span>`;
-      const y = this.yFor(driverId, yearIdx);
-      el.style.left = `${this.x(yearIdx) - geom.puck / 2}px`;
-      el.style.top = `${y - geom.puck / 2}px`;
-      frag.appendChild(el);
-      created.push(el);
+      el.innerHTML = `${img}${tag}`;
+    } else {
+      const existing = el.querySelector('.puck-tag');
+      if (existing) existing.outerHTML = tag;
     }
-    this.pucksEl.appendChild(frag);
+  }
 
-    if (animate && created.length) {
-      gsap.fromTo(
-        created,
-        { scale: 0.2, opacity: 0 },
-        {
-          scale: 1,
-          opacity: 1,
-          duration: DUR(0.45),
-          ease: 'back.out(1.7)',
-          stagger: 0.014,
-          delay: DUR(0.08),
-          clearProps: 'scale,opacity',
-        }
-      );
+  // Continuous "scrub": pucks are positioned every scroll frame straight from
+  // the live scroll position rather than tweened after the scroll settles. Each
+  // driver rides its own line, so the portraits stay glued to the timeline and
+  // remain centred while you scroll or drag — on mobile they track the drag
+  // continuously instead of rushing to catch up once a year snaps into place.
+  //
+  // For the fractional year `yf` under the screen centre we bracket the two
+  // integer years i0..i1 (f = yf - i0). A driver on the grid in both years
+  // slides along the same bezier the line uses between those seasons; a driver
+  // only on one side fades in / out as we approach the year they (dis)appear.
+
+  // Ensure a puck element exists for every driver on the grid in either bracket
+  // year: create new arrivals, drop the ones that have scrolled out of range,
+  // and refresh team colour / number for the rest.
+  rebuildActivePucks(i0, i1) {
+    const { model } = this;
+    const active = (this._activePucks ??= new Map());
+    const want = new Set([
+      ...model.seasons[i0].orders[this.mode],
+      ...model.seasons[i1].orders[this.mode],
+    ]);
+
+    for (const [driverId, el] of active) {
+      if (!want.has(driverId)) {
+        el.remove();
+        active.delete(driverId);
+      }
+    }
+
+    for (const driverId of want) {
+      const anchor = this.yFor(driverId, i0) != null ? i0 : i1;
+      const season = model.seasons[anchor];
+      const entry = season.entryBy.get(driverId);
+      let el = active.get(driverId);
+      if (el) {
+        this.fillPuck(el, driverId, entry, season, { createImg: false });
+      } else {
+        el = document.createElement('button');
+        el.className = 'puck';
+        el.dataset.driver = driverId;
+        this.fillPuck(el, driverId, entry, season, { createImg: true });
+        this.pucksEl.appendChild(el);
+        active.set(driverId, el);
+      }
+    }
+  }
+
+  // Position every active puck for the current scroll position.
+  scrubPucks() {
+    const { geom, model } = this;
+    const n = model.years.length;
+    const half = geom.puck / 2;
+    const center = this.viewport.scrollLeft + geom.vw / 2;
+    let yf = (center - geom.padX - geom.yearW / 2) / geom.yearW;
+    yf = Math.max(0, Math.min(n - 1, yf));
+    const i0 = Math.floor(yf);
+    const i1 = Math.min(i0 + 1, n - 1);
+    const f = yf - i0;
+
+    if (i0 !== this._scrubI0) {
+      this.rebuildActivePucks(i0, i1);
+      this._scrubI0 = i0;
+    }
+
+    const bez = (p0, p1, p2, p3, t) => {
+      const u = 1 - t;
+      return u * u * u * p0 + 3 * u * u * t * p1 + 3 * u * t * t * p2 + t * t * t * p3;
+    };
+
+    for (const [driverId, el] of this._activePucks) {
+      const ay = this.yFor(driverId, i0);
+      const by = this.yFor(driverId, i1);
+      let px, py, opacity;
+      if (ay != null && by != null) {
+        const ax = this.x(i0);
+        const bx = this.x(i1);
+        const mx = (ax + bx) / 2;
+        px = bez(ax, mx, mx, bx, f);
+        py = bez(ay, ay, by, by, f);
+        opacity = 1;
+      } else if (ay != null) {
+        px = this.x(i0);
+        py = ay;
+        opacity = 1 - f;
+      } else {
+        px = this.x(i1);
+        py = by;
+        opacity = f;
+      }
+      el.style.left = `${px - half}px`;
+      el.style.top = `${py - half}px`;
+      el.style.opacity = opacity;
+      // don't let an all-but-invisible puck intercept hover / clicks
+      el.style.pointerEvents = opacity > 0.5 ? 'auto' : 'none';
     }
   }
 
@@ -368,17 +429,31 @@ export class Viz {
       scrollRaf = requestAnimationFrame(() => {
         scrollRaf = null;
         this.updateAxisProximity();
+        this.scrubPucks();
       });
       this.hideTooltip();
     });
 
     const onSettled = () => {
+      // Snap puck positions to the resting scroll position.
+      this.scrubPucks();
+      // Ignore the settle that our own programmatic centring produces — the
+      // year is already set by the wheel/keys/nav; only react to the user
+      // panning the timeline horizontally by hand.
+      if (this._autoScroll) {
+        this._autoScroll = false;
+        return;
+      }
       const idx = Math.round(
         (this.viewport.scrollLeft + this.geom.vw / 2 - this.geom.padX - this.geom.yearW / 2) /
           this.geom.yearW
       );
       const clamped = Math.max(0, Math.min(this.model.years.length - 1, idx));
-      if (clamped !== this.yearIdx) this.setYear(clamped, { scroll: false });
+      if (clamped !== this.yearIdx) {
+        this.yearIdx = clamped;
+        this.updateAxisState();
+        this.hideTooltip();
+      }
     };
     if ('onscrollend' in window) {
       this.viewport.addEventListener('scrollend', onSettled);
@@ -391,9 +466,14 @@ export class Viz {
     }
 
     // wheel: vertical wheel steps between years when there is nothing to
-    // scroll vertically, or when hovering the year axis
-    let wheelAcc = 0;
-    let wheelLock = 0;
+    // scroll vertically, or when hovering the year axis. Each notch changes the
+    // year by exactly one (immediately) and the horizontal centring animation
+    // catches up. A short cooldown caps the rate so a single notch — or a
+    // trackpad's momentum burst — can't jump several years at once. We only use
+    // the wheel direction, so it behaves the same regardless of how Firefox or
+    // a trackpad reports the delta magnitude.
+    const WHEEL_COOLDOWN = 110;
+    let wheelLockUntil = 0;
     this.viewport.addEventListener(
       'wheel',
       (e) => {
@@ -404,13 +484,11 @@ export class Viz {
         if (!overAxis && hasVScroll) return; // plain vertical scrolling
         e.preventDefault();
         const now = performance.now();
-        if (now < wheelLock) return;
-        wheelAcc += e.deltaY;
-        if (Math.abs(wheelAcc) > 40) {
-          this.step(Math.sign(wheelAcc));
-          wheelAcc = 0;
-          wheelLock = now + 450;
-        }
+        if (now < wheelLockUntil) return;
+        const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
+        if (!dir) return;
+        wheelLockUntil = now + WHEEL_COOLDOWN;
+        this.step(dir);
       },
       { passive: false }
     );
@@ -434,6 +512,15 @@ export class Viz {
       hoverRaf = null;
       const e = hoverEvent;
       if (!e) return;
+      // The year axis (big year numbers) is sticky to the bottom of the
+      // viewport with pointer-events:none, so lines drawn behind it would
+      // otherwise still take focus. Ignore hovers inside that band.
+      const vpRect = this.viewport.getBoundingClientRect();
+      if (e.clientY > vpRect.bottom - AXIS_H) {
+        this.setFocus(null);
+        this.hideTooltip();
+        return;
+      }
       const stack = document.elementsFromPoint(e.clientX, e.clientY);
       let topDriver = null;
       let keepCurrent = false;
@@ -585,6 +672,9 @@ export class Viz {
   }
 
   centerOnYear(idx, { smooth = true } = {}) {
+    // Flag this as a programmatic scroll so the settle handler doesn't treat
+    // the resulting scrollend as a manual pan and re-set the year.
+    this._autoScroll = true;
     this.viewport.scrollTo({
       left: this.x(idx) - this.geom.vw / 2,
       behavior: smooth && !reducedMotion ? 'smooth' : 'auto',
@@ -595,8 +685,10 @@ export class Viz {
     if (idx === this.yearIdx) return;
     this.yearIdx = idx;
     this.updateAxisState();
-    this.renderPucks({ animate: true });
     this.hideTooltip();
+    // The pucks are driven continuously by the scroll position (scrubPucks),
+    // so we only need to start the horizontal animation; the portraits ride
+    // their lines toward the new year as the scroll catches up.
     if (scroll) this.centerOnYear(idx);
   }
 
@@ -613,10 +705,10 @@ export class Viz {
         }
       }
     }
-    const pucks = [...this.pucksEl.children].map((el) => ({
-      el,
-      to: this.yFor(el.dataset.driver, this.yearIdx, mode) - this.geom.puck / 2,
-    }));
+    const pucks = [...this._activePucks]
+      .map(([driverId, el]) => ({ el, to: this.yFor(driverId, this.yearIdx, mode) }))
+      .filter((p) => p.to != null)
+      .map((p) => ({ el: p.el, to: p.to - this.geom.puck / 2 }));
 
     const proxy = { t: 0 };
     gsap.to(proxy, {
@@ -638,10 +730,10 @@ export class Viz {
     this.computeGeometry();
     this.buildAxis();
     this.buildChart();
-    this.renderPucks({ animate: false });
     this.updateAxisState();
     this.updateAxisProximity();
     this.centerOnYear(idx, { smooth: false });
+    this.scrubPucks();
   }
 
   // ---------- intro ----------
